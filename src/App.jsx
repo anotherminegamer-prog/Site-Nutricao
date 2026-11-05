@@ -13,6 +13,7 @@ import {
 } from "./lib/helpers";
 import "./App.css";
 import DietScreen from "./components/DietScreen";
+import NewsScreen from "./components/NewsScreen";
 
 /* ---------- root ----------
    A autenticação (cadastro, login, "esqueci minha senha" por e-mail, limite
@@ -23,7 +24,7 @@ import DietScreen from "./components/DietScreen";
 
 export default function RitmoApp() {
   const [phase, setPhase] = useState("loading"); // loading | auth | reset-password | app
-  const [view, setView] = useState("dashboard"); // dashboard | goals | diet
+  const [view, setView] = useState("dashboard"); // dashboard | goals | diet | news
   const [session, setSession] = useState(null);
   const [entries, setEntries] = useState([]);
   const [banner, setBanner] = useState(null);
@@ -382,6 +383,7 @@ export default function RitmoApp() {
           pointsBalance={pointsBalance}
           onOpenGoals={() => setView("goals")}
           onOpenDiet={() => setView("diet")}
+          onOpenNews={() => setView("news")}
         />
       )}
 
@@ -401,6 +403,7 @@ export default function RitmoApp() {
           onChooseCosmetic={chooseCosmetic}
           onBackToDashboard={() => setView("dashboard")}
           onOpenDiet={() => setView("diet")}
+          onOpenNews={() => setView("news")}
           onLogout={handleLogout}
         />
       )}
@@ -414,6 +417,18 @@ export default function RitmoApp() {
           onSaveProfile={saveHealthProfile}
           onDeleteProfile={deleteHealthProfile}
           onBackToDashboard={() => setView("dashboard")}
+          onOpenGoals={() => setView("goals")}
+          onOpenNews={() => setView("news")}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {phase === "app" && session && view === "news" && (
+        <NewsScreen
+          banner={banner}
+          userName={profile.name}
+          onBackToDashboard={() => setView("dashboard")}
+          onOpenDiet={() => setView("diet")}
           onOpenGoals={() => setView("goals")}
           onLogout={handleLogout}
         />
@@ -669,7 +684,7 @@ function ResetPasswordScreen({ onDone }) {
 
 /* ---------- dashboard ---------- */
 
-function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, banner, pointsBalance, onOpenGoals, onOpenDiet }) {
+function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, banner, pointsBalance, onOpenGoals, onOpenDiet, onOpenNews }) {
   const [confirmingReset, setConfirmingReset] = useState(false);
   const firstName = profile.name.split(" ")[0];
 
@@ -718,6 +733,9 @@ function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, ba
         <div className="rt-header-right">
           <button className="rt-nav-btn rt-focus" onClick={onOpenDiet}>
             Dietas
+          </button>
+          <button className="rt-nav-btn rt-focus" onClick={onOpenNews}>
+            Notícias
           </button>
           <button className="rt-nav-btn rt-focus" onClick={onOpenGoals}>
             Metas <span className="rt-points-pill">{pointsBalance} pts</span>
@@ -1039,6 +1057,7 @@ function GoalsScreen({
   onChooseCosmetic,
   onBackToDashboard,
   onOpenDiet,
+  onOpenNews,
   onLogout,
 }) {
   const [newGoal, setNewGoal] = useState("");
@@ -1073,6 +1092,9 @@ function GoalsScreen({
             </button>
             <button className="rt-nav-btn rt-focus" onClick={onOpenDiet}>
               Dietas
+            </button>
+            <button className="rt-nav-btn rt-focus" onClick={onOpenNews}>
+              Notícias
             </button>
             <span className="rt-greeting">Olá, {firstName}</span>
             <button className="rt-link rt-focus" onClick={onLogout}>

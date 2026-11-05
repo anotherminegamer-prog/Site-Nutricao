@@ -275,7 +275,7 @@ function Results({ profile, entries }) {
   );
 }
 
-export default function DietScreen({ profile, entries, banner, userName, onSaveProfile, onDeleteProfile, onBackToDashboard, onOpenGoals, onLogout }) {
+export default function DietScreen({ profile, entries, banner, userName, onSaveProfile, onDeleteProfile, onBackToDashboard, onOpenGoals, onOpenNews, onLogout }) {
   const [wizardStep, setWizardStep] = useState(null); // null = fechado, número = etapa inicial
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const firstName = userName.split(" ")[0];
@@ -305,6 +305,9 @@ export default function DietScreen({ profile, entries, banner, userName, onSaveP
         <div className="rt-header-right">
           <button className="rt-nav-btn rt-focus" onClick={onBackToDashboard}>
             Painel
+          </button>
+          <button className="rt-nav-btn rt-focus" onClick={onOpenNews}>
+            Notícias
           </button>
           <button className="rt-nav-btn rt-focus" onClick={onOpenGoals}>
             Metas
