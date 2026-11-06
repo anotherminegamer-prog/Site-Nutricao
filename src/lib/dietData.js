@@ -1,5 +1,3 @@
-/* ---------- opções do questionário ---------- */
-
 export const SEX_OPTIONS = [
   { value: "female", label: "Feminino" },
   { value: "male", label: "Masculino" },
@@ -51,8 +49,6 @@ export const CONDITION_OPTIONS = [
   { value: "eating_disorder", label: "Histórico de transtorno alimentar", hint: "anorexia, bulimia, compulsão..." },
 ];
 
-// Como adaptar qualquer dieta quando a pessoa tem uma restrição que a dieta
-// não cobre por padrão (compat = "adapt").
 export const RESTRICTION_ADAPTATIONS = {
   vegetarian: "Troque carnes e peixes por ovos, laticínios, leguminosas (feijão, lentilha, grão-de-bico), tofu e castanhas.",
   vegan:
@@ -66,18 +62,6 @@ export const RESTRICTION_ADAPTATIONS = {
 
 export const RESTRICTION_LABELS = Object.fromEntries(RESTRICTION_OPTIONS.map((o) => [o.value, o.label]));
 
-/* ---------- catálogo de dietas ----------
-   Cada dieta é um padrão alimentar conhecido, com respaldo em diretrizes ou
-   estudos clínicos. Campos usados pelo motor de recomendação (diet.js):
-
-   fit.goal[objetivo]   = [pontos, justificativa]
-   fit.cond[condição]   = [pontos, texto]  (pontos negativos viram aviso)
-   compat[restrição]    = "ideal" | "ok" | "adapt" | "no"
-   onlyIf / onlyGoals   = só aparece para quem tem essa restrição / objetivo
-   effort, cost         = 1 (baixo) a 3 (alto)
-   trainingFit          = -1, 0 ou 1 (adequação a muito exercício)
-   sleepFriendly        = ajuda no apetite de quem dorme pouco
-   macros               = faixa de % das calorias (carb/protein/fat)           */
 
 export const DIETS = [
   {

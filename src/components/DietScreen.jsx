@@ -28,9 +28,9 @@ function StepsChecklist({ steps, onWizard, onGoTo }) {
               </strong>
               <small>{s.hint}</small>
             </span>
-            {s.wizardStep !== undefined && (
+            {s.wizardStep !== undefined && s.done && (
               <button type="button" className="rt-link rt-focus" onClick={() => onWizard(s.wizardStep)}>
-                {s.done ? "Editar" : "Preencher"}
+                Editar
               </button>
             )}
             {s.goTo && !s.done && (
@@ -275,10 +275,9 @@ function Results({ profile, entries }) {
   );
 }
 
-export default function DietScreen({ profile, entries, banner, userName, onSaveProfile, onDeleteProfile, onBackToDashboard, onOpenGoals, onLogout }) {
-  const [wizardStep, setWizardStep] = useState(null); // null = fechado, número = etapa inicial
+export default function DietScreen({ profile, entries, onSaveProfile, onDeleteProfile, onBackToDashboard }) {
+  const [wizardStep, setWizardStep] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const firstName = userName.split(" ")[0];
 
   const { steps, ready, precision } = getReadiness(profile, entries);
   const showWizard = !profile || wizardStep !== null;
@@ -295,31 +294,10 @@ export default function DietScreen({ profile, entries, banner, userName, onSaveP
 
   return (
     <div className="rt-app">
-      {banner && <div className="rt-banner">{banner}</div>}
-
-      <header className="rt-header">
-        <div className="rt-brand">
-          <span className="rt-brand-mark" aria-hidden="true" />
-          <span className="rt-brand-name">PROTÓTIPO</span>
-        </div>
-        <div className="rt-header-right">
-          <button className="rt-nav-btn rt-focus" onClick={onBackToDashboard}>
-            Painel
-          </button>
-          <button className="rt-nav-btn rt-focus" onClick={onOpenGoals}>
-            Metas
-          </button>
-          <span className="rt-greeting">Olá, {firstName}</span>
-          <button className="rt-link rt-focus" onClick={onLogout}>
-            Sair
-          </button>
-        </div>
-      </header>
-
       <section className="rt-goals-hero">
         <div>
-          <h1 className="rt-goals-title">Dietas para você</h1>
-          <p className="rt-goals-sub">
+          <h1 className="rt-page-title">Dietas</h1>
+          <p className="rt-page-sub">
             Responda algumas etapas e registre peso, sono e exercício. A recomendação usa tudo isso.
           </p>
         </div>

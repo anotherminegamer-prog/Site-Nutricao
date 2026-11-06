@@ -78,7 +78,6 @@ export default function ProfileWizard({ profile, initialStep = 0, onSave, onCanc
     setForm((f) => ({
       ...f,
       sex,
-      // gestante/amamentando só faz sentido para quem não é do sexo masculino
       conditions: sex === "male" ? f.conditions.filter((c) => c !== "pregnant" && c !== "lactating") : f.conditions,
     }));
 

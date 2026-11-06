@@ -3,38 +3,39 @@ import { supabase } from "./supabaseClient";
 import {
   todayStr,
   uid,
-  fmtDateShort,
   fmtDateHeader,
   daysAgo,
   TYPE_META,
   DEFAULT_GOALS,
   COSMETIC_STYLES,
   groupByDate,
+  BRAND,
+  themeVars,
 } from "./lib/helpers";
+import { buildPlanGoals, PLAN_PREFIX } from "./lib/plan";
 import "./App.css";
 import DietScreen from "./components/DietScreen";
+import NewsScreen from "./components/NewsScreen";
+import AppHeader, { BrandLogo } from "./components/AppHeader";
+import MonitorHero from "./components/MonitorHero";
 
-/* ---------- root ----------
-   A autenticação (cadastro, login, "esqueci minha senha" por e-mail, limite
-   de tentativas) agora é toda feita pelo Supabase Auth — não há mais nenhum
-   código de senha na mão neste arquivo. Os registros de saúde ficam numa
-   tabela de verdade (`entries`), protegida por Row Level Security: o banco
-   em si garante que cada pessoa só lê/escreve as próprias linhas. */
 
 export default function RitmoApp() {
-  const [phase, setPhase] = useState("loading"); // loading | auth | reset-password | app
-  const [view, setView] = useState("dashboard"); // dashboard | goals | diet
+  const [phase, setPhase] = useState("loading");
+  const [view, setView] = useState("dashboard");
   const [session, setSession] = useState(null);
   const [entries, setEntries] = useState([]);
   const [banner, setBanner] = useState(null);
 
   const [goals, setGoals] = useState([]);
-  const [completedToday, setCompletedToday] = useState({}); // { [goal_id]: true }
+  const [completedToday, setCompletedToday] = useState({});
   const [pointsEarned, setPointsEarned] = useState(0);
-  const [cosmeticsCatalog, setCosmeticsCatalog] = useState([]); // [{id, cost}] — preço real, vem do banco
+  const [cosmeticsCatalog, setCosmeticsCatalog] = useState([]);
   const [cosmeticUnlocks, setCosmeticUnlocks] = useState(new Set());
   const [selectedCosmetic, setSelectedCosmetic] = useState("branco");
-  const [healthProfile, setHealthProfile] = useState(null); // linha de health_profiles ou null
+  const [healthProfile, setHealthProfile] = useState(null);
+  const [ready, setReady] = useState({ entries: false, goals: false, profile: false });
+  const markReady = (key) => setReady((r) => ({ ...r, [key]: true }));
 
   const flash = (msg) => {
     setBanner(msg);
@@ -50,6 +51,7 @@ export default function RitmoApp() {
         .order("date", { ascending: false })
         .order("created_at", { ascending: false });
       if (error) throw error;
+      markReady("entries");
       setEntries(
         (data || []).map((r) => ({
           id: r.id,
@@ -68,10 +70,6 @@ export default function RitmoApp() {
 
   const loadGoalsData = async (currentSession) => {
     try {
-      // 1ª vez da pessoa aqui: semeia o catálogo padrão de metas. Isso roda
-      // dentro do banco (função seed_default_goals), de forma atômica — abrir
-      // duas abas ao mesmo tempo não duplica as metas, e quem arquivou todas
-      // as metas de propósito não as ganha de volta.
       const { error: seedError } = await supabase.rpc("seed_default_goals", { labels: DEFAULT_GOALS });
       if (seedError) console.error("seed_default_goals:", seedError);
 
@@ -91,8 +89,6 @@ export default function RitmoApp() {
       const unlockedIds = new Set((unlocksRes.data || []).map((r) => r.cosmetic_id));
       const catalog = cosmeticsRes.data || [];
 
-      // a cor salva fica em user_metadata, que a própria pessoa consegue editar;
-      // só vale se for gratuita ou realmente desbloqueada
       const saved = currentSession?.user?.user_metadata?.selected_cosmetic;
       const savedEntry = catalog.find((c) => c.id === saved);
       const savedIsValid = savedEntry && (savedEntry.cost === 0 || unlockedIds.has(saved));
@@ -105,6 +101,7 @@ export default function RitmoApp() {
       setCosmeticsCatalog(catalog);
       setCosmeticUnlocks(unlockedIds);
       setSelectedCosmetic(savedIsValid ? saved : "branco");
+      markReady("goals");
     } catch (err) {
       console.error("loadGoalsData:", err);
       flash("Não foi possível carregar as metas agora.");
@@ -116,6 +113,7 @@ export default function RitmoApp() {
       const { data, error } = await supabase.from("health_profiles").select("*").maybeSingle();
       if (error) throw error;
       setHealthProfile(data || null);
+      markReady("profile");
     } catch (err) {
       console.error("loadHealthProfile:", err);
       flash("Não foi possível carregar seu perfil de saúde agora.");
@@ -152,10 +150,6 @@ export default function RitmoApp() {
     }
   };
 
-  // Carrega os dados da pessoa uma única vez por usuário. Antes, getSession e
-  // onAuthStateChange disparavam as duas cargas em duplicidade, e eventos como
-  // TOKEN_REFRESHED / USER_UPDATED (disparado ao trocar a cor) recarregavam
-  // tudo de novo à toa.
   const loadedUserId = useRef(null);
   const loadAllFor = (currentSession) => {
     const userId = currentSession?.user?.id;
@@ -172,8 +166,6 @@ export default function RitmoApp() {
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       setSession(data.session);
-      // não atropela a tela de nova senha, caso o evento PASSWORD_RECOVERY
-      // já tenha chegado antes desta promessa resolver
       setPhase((prev) => (prev === "reset-password" ? prev : data.session ? "app" : "auth"));
       if (data.session) loadAllFor(data.session);
     });
@@ -187,8 +179,6 @@ export default function RitmoApp() {
       setSession(newSession);
       if (newSession) {
         setPhase((prev) => (prev === "reset-password" ? prev : "app"));
-        // adia a carga: o supabase-js recomenda não chamar o próprio cliente
-        // de dentro do callback de auth (risco de travar a fila interna)
         setTimeout(() => {
           if (active) loadAllFor(newSession);
         }, 0);
@@ -201,6 +191,7 @@ export default function RitmoApp() {
         setCosmeticUnlocks(new Set());
         setSelectedCosmetic("branco");
         setHealthProfile(null);
+        setReady({ entries: false, goals: false, profile: false });
         setView("dashboard");
         setPhase("auth");
       }
@@ -211,6 +202,60 @@ export default function RitmoApp() {
       sub.subscription.unsubscribe();
     };
   }, []);
+
+  const planSyncing = useRef(false);
+  useEffect(() => {
+    if (!session || !ready.entries || !ready.goals || !ready.profile || planSyncing.current) return;
+    const desired = buildPlanGoals(healthProfile, entries);
+    const signature = desired.join("|");
+    const storageKey = `nutrivita-plano-${session.user.id}`;
+    const saved = (() => {
+      try {
+        return localStorage.getItem(storageKey);
+      } catch {
+        return null;
+      }
+    })();
+    const remember = () => {
+      try {
+        localStorage.setItem(storageKey, signature);
+      } catch {}
+    };
+
+    const current = goals.filter((g) => g.label.startsWith(PLAN_PREFIX));
+    const stale = current.filter((g) => !desired.includes(g.label));
+    const missing = desired.filter((l) => !current.some((g) => g.label === l));
+    if (stale.length === 0 && (missing.length === 0 || saved === signature)) {
+      remember();
+      return;
+    }
+
+    planSyncing.current = true;
+    (async () => {
+      try {
+        if (stale.length) {
+          const { error } = await supabase.from("goals").update({ archived: true }).in("id", stale.map((g) => g.id));
+          if (error) throw error;
+        }
+        if (missing.length) {
+          const { error } = await supabase.from("goals").insert(missing.map((label) => ({ label, points: 10 })));
+          if (error) throw error;
+        }
+        const { data, error } = await supabase
+          .from("goals")
+          .select("*")
+          .eq("archived", false)
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        setGoals(data || []);
+        remember();
+      } catch (err) {
+        console.error("syncPlanGoals:", err);
+      } finally {
+        planSyncing.current = false;
+      }
+    })();
+  }, [session, ready, healthProfile, entries, goals]);
 
   const addEntry = async (type, value, extra) => {
     const optimistic = { id: uid(), type, value, date: todayStr(), createdAt: Date.now(), ...extra };
@@ -247,8 +292,6 @@ export default function RitmoApp() {
     const prevEntries = entries;
     setEntries([]);
     try {
-      // o filtro por user_id é explícito (a RLS já garantiria o mesmo), e
-      // evita depender de uma condição "fantasma" só para o delete passar
       const { error } = await supabase.from("entries").delete().eq("user_id", session.user.id);
       if (error) throw error;
     } catch (err) {
@@ -263,8 +306,6 @@ export default function RitmoApp() {
     setCompletedToday((prev) => ({ ...prev, [goal.id]: true }));
     setPointsEarned((prev) => prev + goal.points);
     try {
-      // sem "points" aqui — o valor vem da própria meta, definido pelo banco
-      // (trigger enforce_goal_completion), não pelo que o site manda
       const { error } = await supabase.from("goal_completions").insert({ goal_id: goal.id, date: todayStr() });
       if (error) throw error;
     } catch (err) {
@@ -303,7 +344,6 @@ export default function RitmoApp() {
     }
   };
 
-  // preço real (banco) + aparência (fixa no código, sem risco) combinados
   const cosmetics = cosmeticsCatalog.map((c) => ({ ...COSMETIC_STYLES[c.id], id: c.id, cost: c.cost }));
   const cosmeticById = (id) =>
     cosmetics.find((c) => c.id === id) || { id, cost: 0, ...(COSMETIC_STYLES[id] || COSMETIC_STYLES.branco) };
@@ -325,8 +365,6 @@ export default function RitmoApp() {
 
     try {
       if (!alreadyUnlocked) {
-        // sem "cost" aqui — o preço real é conferido pelo próprio banco
-        // (política de RLS em cosmetic_unlocks), não pelo que o site manda
         const { error } = await supabase.from("cosmetic_unlocks").insert({ cosmetic_id: cosmetic.id });
         if (error) throw error;
       }
@@ -350,8 +388,26 @@ export default function RitmoApp() {
     ? { name: session.user.user_metadata?.name || session.user.email.split("@")[0] }
     : null;
 
+  const cosmeticNow = cosmeticById(selectedCosmetic);
+  const inApp = phase === "app" && session;
+
   return (
-    <div className="rt-root">
+    <div className="rt-root" style={themeVars(cosmeticNow)}>
+      {inApp && (
+        <AppHeader
+          active={view}
+          userName={profile.name}
+          pointsBalance={pointsBalance}
+          onNavigate={setView}
+          onLogout={handleLogout}
+        />
+      )}
+      {inApp && banner && (
+        <div className="rt-banner" role="status">
+          {banner}
+        </div>
+      )}
+
       {phase === "loading" && (
         <div className="rt-boot">
           <div className="rt-boot-dot" />
@@ -374,14 +430,9 @@ export default function RitmoApp() {
         <Dashboard
           profile={profile}
           entries={entries}
-          onLogout={handleLogout}
           onAdd={addEntry}
           onDelete={deleteEntry}
           onResetAll={resetAll}
-          banner={banner}
-          pointsBalance={pointsBalance}
-          onOpenGoals={() => setView("goals")}
-          onOpenDiet={() => setView("diet")}
         />
       )}
 
@@ -394,14 +445,12 @@ export default function RitmoApp() {
           cosmetics={cosmetics}
           cosmeticUnlocks={cosmeticUnlocks}
           selectedCosmetic={selectedCosmetic}
-          banner={banner}
+          hasHealthProfile={!!healthProfile}
           onComplete={completeGoal}
           onAddGoal={addGoal}
           onArchiveGoal={archiveGoal}
           onChooseCosmetic={chooseCosmetic}
-          onBackToDashboard={() => setView("dashboard")}
           onOpenDiet={() => setView("diet")}
-          onLogout={handleLogout}
         />
       )}
 
@@ -409,23 +458,20 @@ export default function RitmoApp() {
         <DietScreen
           profile={healthProfile}
           entries={entries}
-          banner={banner}
-          userName={profile.name}
           onSaveProfile={saveHealthProfile}
           onDeleteProfile={deleteHealthProfile}
           onBackToDashboard={() => setView("dashboard")}
-          onOpenGoals={() => setView("goals")}
-          onLogout={handleLogout}
         />
       )}
+
+      {phase === "app" && session && view === "news" && <NewsScreen />}
     </div>
   );
 }
 
-/* ---------- auth screen ---------- */
 
 function AuthScreen() {
-  const [mode, setMode] = useState("login"); // login | signup | forgot
+  const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -457,7 +503,6 @@ function AuthScreen() {
         redirectTo: window.location.origin,
       });
       setSubmitting(false);
-      // mesma mensagem exista ou não a conta, para não vazar quais e-mails têm cadastro
       setInfo(
         err
           ? "Não foi possível enviar o e-mail agora. Tente de novo em instantes."
@@ -492,8 +537,6 @@ function AuthScreen() {
         /already registered/i.test(err.message) ? "Esse e-mail já tem uma conta." : "Não foi possível criar a conta agora."
       );
     }
-    // resetToMode limpa error/info, então precisa vir ANTES do setInfo — antes
-    // vinha depois e a mensagem de "conta criada" nunca aparecia
     resetToMode("login");
     setInfo("Conta criada! Verifique seu e-mail para confirmar antes de entrar.");
   };
@@ -509,8 +552,8 @@ function AuthScreen() {
     <div className="rt-auth-wrap">
       <div className="rt-auth-card">
         <div className="rt-brand">
-          <span className="rt-brand-mark" aria-hidden="true" />
-          <span className="rt-brand-name">PROTÓTIPO</span>
+          <BrandLogo />
+          <span className="rt-brand-name">{BRAND}</span>
         </div>
         <p className="rt-brand-tag">monitor pessoal de saúde</p>
 
@@ -627,8 +670,8 @@ function ResetPasswordScreen({ onDone }) {
     <div className="rt-auth-wrap">
       <div className="rt-auth-card">
         <div className="rt-brand">
-          <span className="rt-brand-mark" aria-hidden="true" />
-          <span className="rt-brand-name">PROTÓTIPO</span>
+          <BrandLogo />
+          <span className="rt-brand-name">{BRAND}</span>
         </div>
         <p className="rt-brand-tag">monitor pessoal de saúde</p>
 
@@ -667,27 +710,18 @@ function ResetPasswordScreen({ onDone }) {
   );
 }
 
-/* ---------- dashboard ---------- */
 
-function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, banner, pointsBalance, onOpenGoals, onOpenDiet }) {
+function Dashboard({ profile, entries, onAdd, onDelete, onResetAll }) {
   const [confirmingReset, setConfirmingReset] = useState(false);
   const firstName = profile.name.split(" ")[0];
 
   const byDateAsc = (a, b) => (a.date === b.date ? a.createdAt - b.createdAt : a.date < b.date ? -1 : 1);
-
-  const sleepSeries = entries
-    .filter((e) => e.type === "sleep")
-    .slice()
-    .sort(byDateAsc)
-    .slice(-10);
 
   const weightSeries = entries
     .filter((e) => e.type === "weight")
     .slice()
     .sort(byDateAsc)
     .slice(-8);
-
-  const exerciseDatesSet = new Set(entries.filter((e) => e.type === "exercise").map((e) => e.date));
 
   const last7 = (type) =>
     entries.filter((e) => e.type === type && daysAgo(e.date) <= 6 && daysAgo(e.date) >= 0);
@@ -700,43 +734,17 @@ function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, ba
 
   const totalExercise7 = last7("exercise").reduce((s, e) => s + Number(e.value), 0);
 
-  const lastWeight = weightSeries[weightSeries.length - 1];
-  const prevWeight = weightSeries[weightSeries.length - 2];
-  const weightDelta = lastWeight && prevWeight ? lastWeight.value - prevWeight.value : null;
-
   const grouped = groupByDate(entries);
 
   return (
     <div className="rt-app">
-      {banner && <div className="rt-banner">{banner}</div>}
+      <section className="rt-welcome">
+        <p className="rt-eyebrow">{fmtDateHeader(todayStr())}</p>
+        <h1 className="rt-page-title">Painel</h1>
+        <p className="rt-page-sub">Olá, {firstName}! Veja como estão seu peso, seu sono e seus treinos, e registre o dia de hoje.</p>
+      </section>
 
-      <header className="rt-header">
-        <div className="rt-brand">
-          <span className="rt-brand-mark" aria-hidden="true" />
-          <span className="rt-brand-name">PROTÓTIPO</span>
-        </div>
-        <div className="rt-header-right">
-          <button className="rt-nav-btn rt-focus" onClick={onOpenDiet}>
-            Dietas
-          </button>
-          <button className="rt-nav-btn rt-focus" onClick={onOpenGoals}>
-            Metas <span className="rt-points-pill">{pointsBalance} pts</span>
-          </button>
-          <span className="rt-greeting">Olá, {firstName}</span>
-          <button className="rt-link rt-focus" onClick={onLogout}>
-            Sair
-          </button>
-        </div>
-      </header>
-
-      <MonitorHero
-        sleepSeries={sleepSeries}
-        exerciseDatesSet={exerciseDatesSet}
-        avgSleep7={avgSleep7}
-        lastWeight={lastWeight}
-        weightDelta={weightDelta}
-        totalExercise7={totalExercise7}
-      />
+      <MonitorHero entries={entries} />
 
       <section className="rt-grid" aria-label="Registrar dados">
         <QuickAddCard
@@ -779,11 +787,11 @@ function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, ba
         />
       </section>
 
-      <section className="rt-logbook" aria-label="Diário de registros">
-        <h2 className="rt-section-title">Diário</h2>
+      <section className="rt-logbook" aria-label="Dados registrados">
+        <h2 className="rt-section-title">Dados</h2>
         {grouped.length === 0 ? (
           <p className="rt-card-empty">
-            Seu diário está vazio. Comece registrando peso, sono ou exercício acima.
+            Você ainda não tem dados. Comece registrando peso, sono ou exercício acima.
           </p>
         ) : (
           grouped.map(([date, list]) => (
@@ -843,113 +851,12 @@ function Dashboard({ profile, entries, onLogout, onAdd, onDelete, onResetAll, ba
   );
 }
 
-/* ---------- monitor hero (signature element) ---------- */
 
-function MonitorHero({ sleepSeries, exerciseDatesSet, avgSleep7, lastWeight, weightDelta, totalExercise7 }) {
-  const W = 720;
-  const H = 220;
-  const padL = 44;
-  const padR = 20;
-  const padT = 22;
-  const padB = 36;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-
-  const n = sleepSeries.length;
-  const hasTrace = n >= 2;
-
-  const xFor = (i) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-  const yFor = (v) => padT + (1 - Math.min(Math.max(v, 0), 10) / 10) * plotH;
-
-  const pathD = hasTrace
-    ? sleepSeries.map((e, i) => `${i === 0 ? "M" : "L"} ${xFor(i).toFixed(1)},${yFor(Number(e.value)).toFixed(1)}`).join(" ")
-    : "";
-
-  return (
-    <section className="rt-hero" aria-label="Ritmo dos últimos dias">
-      <div className="rt-hero-readouts">
-        <Readout label="SONO MÉDIO · 7D" value={avgSleep7 !== null ? avgSleep7.toFixed(1) : "--"} unit="h" color="var(--trace)" />
-        <Readout
-          label="PESO ATUAL"
-          value={lastWeight ? Number(lastWeight.value).toFixed(1) : "--"}
-          unit="kg"
-          color="var(--amber-dark)"
-          delta={weightDelta}
-        />
-        <Readout label="EXERCÍCIO · 7D" value={String(totalExercise7)} unit="min" color="var(--moss-dark)" />
-      </div>
-
-      <svg viewBox={`0 0 ${W} ${H}`} className="rt-monitor-svg" role="img" aria-label="Traçado de sono dos últimos dias">
-        <defs>
-          <filter id="rt-glow" x="-20%" y="-40%" width="140%" height="180%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        {[0, 5, 10].map((h) => (
-          <g key={h}>
-            <line x1={padL} x2={W - padR} y1={yFor(h)} y2={yFor(h)} className="rt-grid-line" />
-            <text x={padL - 10} y={yFor(h) + 4} textAnchor="end" className="rt-grid-label">
-              {h}h
-            </text>
-          </g>
-        ))}
-
-        {hasTrace ? (
-          <>
-            <path d={pathD} className="rt-trace-path" filter="url(#rt-glow)" />
-            {sleepSeries.map((e, i) => (
-              <circle key={e.id} cx={xFor(i)} cy={yFor(Number(e.value))} r="3.2" className="rt-trace-dot" />
-            ))}
-            {sleepSeries.map((e, i) => (
-              <circle
-                key={`m-${e.id}`}
-                cx={xFor(i)}
-                cy={H - padB + 14}
-                r={exerciseDatesSet.has(e.date) ? 3.4 : 1.6}
-                className={exerciseDatesSet.has(e.date) ? "rt-marker-on" : "rt-marker-off"}
-              />
-            ))}
-            {sleepSeries.map((e, i) =>
-              i === 0 || i === n - 1 ? (
-                <text key={`t-${e.id}`} x={xFor(i)} y={H - 6} textAnchor="middle" className="rt-grid-label">
-                  {fmtDateShort(e.date)}
-                </text>
-              ) : null
-            )}
-          </>
-        ) : (
-          <text x={W / 2} y={H / 2} textAnchor="middle" className="rt-monitor-empty">
-            Sem sinais ainda — registre seu sono abaixo para ver o traçado.
-          </text>
-        )}
-      </svg>
-    </section>
-  );
-}
-
-function Readout({ label, value, unit, color, delta }) {
-  return (
-    <div className="rt-readout">
-      <span className="rt-readout-label">{label}</span>
-      <span className="rt-readout-value" style={{ color }}>
-        {value}
-        <span className="rt-readout-unit">{unit}</span>
-      </span>
-      {delta !== null && delta !== undefined && !Number.isNaN(delta) && (
-        <span className={`rt-readout-delta ${delta <= 0 ? "rt-delta-down" : "rt-delta-up"}`}>
-          {delta <= 0 ? "▼" : "▲"} {Math.abs(delta).toFixed(1)}kg
-        </span>
-      )}
-    </div>
-  );
-}
-
-/* ---------- quick add card ---------- */
+const TYPE_ICON = {
+  weight: <path d="M5 9h14l-1.2 9a2 2 0 0 1-2 1.7H8.2a2 2 0 0 1-2-1.7L5 9zm4-3.5a3 3 0 0 1 6 0M12 9l1.8-2.8" />,
+  sleep: <path d="M20 14.5A8 8 0 0 1 9.500 4 8 8 0 1 0 20 14.5z" />,
+  exercise: <path d="M13 3L5 13.5h6L10 21l8-10.500h-6L13 3z" />,
+};
 
 function QuickAddCard({ type, title, hint, placeholder, step, onAdd, footer, extraField }) {
   const [value, setValue] = useState("");
@@ -967,7 +874,11 @@ function QuickAddCard({ type, title, hint, placeholder, step, onAdd, footer, ext
   return (
     <div className="rt-card">
       <div className="rt-card-head">
-        <span className="rt-card-dot" style={{ background: meta.color }} />
+        <span className="rt-card-icon" style={{ color: meta.color }} aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {TYPE_ICON[type]}
+          </svg>
+        </span>
         <h3>{title}</h3>
       </div>
       <p className="rt-card-hint">{hint}</p>
@@ -989,12 +900,12 @@ function QuickAddCard({ type, title, hint, placeholder, step, onAdd, footer, ext
               type="text"
               value={activity}
               onChange={(e) => setActivity(e.target.value)}
-              placeholder="atividade (opcional)"
+              placeholder="atividade"
               maxLength={100}
               aria-label="Atividade"
             />
           )}
-          <button type="submit" className="rt-btn rt-btn-small rt-focus">
+          <button type="submit" className="rt-btn rt-btn-primary rt-btn-small rt-focus">
             Adicionar
           </button>
         </div>
@@ -1022,29 +933,47 @@ function Sparkline({ points, color }) {
   );
 }
 
-/* ---------- goals screen ---------- */
+
+function GoalItem({ goal, done, onComplete, onArchive, label }) {
+  return (
+    <li className={`rt-goal-item ${done ? "rt-goal-done" : ""}`}>
+      <button
+        type="button"
+        className="rt-goal-check rt-focus"
+        onClick={() => onComplete(goal)}
+        disabled={done}
+        aria-pressed={done}
+        aria-label={done ? "Meta concluída" : "Marcar meta como concluída"}
+      >
+        {done ? "✓" : ""}
+      </button>
+      <span className="rt-goal-label">{label}</span>
+      <span className="rt-goal-points">+{goal.points} pts</span>
+      <button type="button" className="rt-goal-remove rt-focus" onClick={() => onArchive(goal.id)} aria-label="Remover meta">
+        ×
+      </button>
+    </li>
+  );
+}
 
 function GoalsScreen({
-  profile,
   goals,
   completedToday,
   pointsBalance,
   cosmetics,
   cosmeticUnlocks,
   selectedCosmetic,
-  banner,
+  hasHealthProfile,
   onComplete,
   onAddGoal,
   onArchiveGoal,
   onChooseCosmetic,
-  onBackToDashboard,
   onOpenDiet,
-  onLogout,
 }) {
   const [newGoal, setNewGoal] = useState("");
-  const firstName = profile.name.split(" ")[0];
-  const cosmetic = cosmetics.find((c) => c.id === selectedCosmetic) || cosmetics[0] || COSMETIC_STYLES.branco;
   const doneCount = goals.filter((g) => completedToday[g.id]).length;
+  const planGoals = goals.filter((g) => g.label.startsWith(PLAN_PREFIX));
+  const otherGoals = goals.filter((g) => !g.label.startsWith(PLAN_PREFIX));
 
   const submitGoal = (e) => {
     e.preventDefault();
@@ -1054,129 +983,114 @@ function GoalsScreen({
     setNewGoal("");
   };
 
+  const renderItems = (list, strip) => (
+    <ul className="rt-goal-items">
+      {list.map((goal) => (
+        <GoalItem
+          key={goal.id}
+          goal={goal}
+          done={!!completedToday[goal.id]}
+          onComplete={onComplete}
+          onArchive={onArchiveGoal}
+          label={strip ? goal.label.slice(PLAN_PREFIX.length).replace(/^./, (c) => c.toUpperCase()) : goal.label}
+        />
+      ))}
+    </ul>
+  );
+
   return (
-    <div
-      className="rt-goals-screen"
-      style={{ "--goals-bg": cosmetic.bg, "--goals-ink": cosmetic.ink }}
-    >
-      <div className="rt-goals-inner">
-        {banner && <div className="rt-banner">{banner}</div>}
-
-        <header className="rt-header">
-          <div className="rt-brand">
-            <span className="rt-brand-mark" aria-hidden="true" />
-            <span className="rt-brand-name">PROTÓTIPO</span>
-          </div>
-          <div className="rt-header-right">
-            <button className="rt-nav-btn rt-focus" onClick={onBackToDashboard}>
-              Painel
-            </button>
-            <button className="rt-nav-btn rt-focus" onClick={onOpenDiet}>
-              Dietas
-            </button>
-            <span className="rt-greeting">Olá, {firstName}</span>
-            <button className="rt-link rt-focus" onClick={onLogout}>
-              Sair
-            </button>
-          </div>
-        </header>
-
-        <section className="rt-goals-hero">
-          <div>
-            <h1 className="rt-goals-title">Metas de hoje</h1>
-            <p className="rt-goals-sub">
-              {doneCount} de {goals.length} concluídas hoje
-            </p>
-          </div>
-          <div className="rt-points-badge">
-            <span className="rt-points-value">{pointsBalance}</span>
-            <span className="rt-points-label">pontos</span>
-          </div>
-        </section>
-
-        <section className="rt-goals-list" aria-label="Lista de metas">
-          {goals.length === 0 ? (
-            <p className="rt-card-empty">Nenhuma meta ainda — adicione uma abaixo.</p>
-          ) : (
-            <ul className="rt-goal-items">
-              {goals.map((goal) => {
-                const done = !!completedToday[goal.id];
-                return (
-                  <li key={goal.id} className={`rt-goal-item ${done ? "rt-goal-done" : ""}`}>
-                    <button
-                      type="button"
-                      className="rt-goal-check rt-focus"
-                      onClick={() => onComplete(goal)}
-                      disabled={done}
-                      aria-pressed={done}
-                      aria-label={done ? "Meta concluída" : "Marcar meta como concluída"}
-                    >
-                      {done ? "✓" : ""}
-                    </button>
-                    <span className="rt-goal-label">{goal.label}</span>
-                    <span className="rt-goal-points">+{goal.points} pts</span>
-                    <button
-                      type="button"
-                      className="rt-goal-remove rt-focus"
-                      onClick={() => onArchiveGoal(goal.id)}
-                      aria-label="Remover meta"
-                    >
-                      ×
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          <form className="rt-goal-add-form" onSubmit={submitGoal}>
-            <input
-              className="rt-input rt-focus"
-              type="text"
-              value={newGoal}
-              onChange={(e) => setNewGoal(e.target.value)}
-              placeholder="Adicionar uma meta nova"
-              maxLength={200}
-            />
-            <button type="submit" className="rt-btn rt-btn-small rt-focus">
-              Adicionar
-            </button>
-          </form>
-        </section>
-
-        <section className="rt-shop" aria-label="Loja de cores">
-          <h2 className="rt-section-title">Cor de fundo desta tela</h2>
-          <p className="rt-goals-sub" style={{ marginBottom: 14 }}>
-            Branco e preto sempre disponíveis. As outras cores custam pontos pra desbloquear —
-            depois de desbloqueada, pode trocar de volta a qualquer hora, de graça.
+    <div className="rt-app">
+      <section className="rt-goals-hero">
+        <div>
+          <h1 className="rt-page-title">Metas</h1>
+          <p className="rt-page-sub">
+            {doneCount} de {goals.length} concluídas hoje
           </p>
-          <div className="rt-cosmetics-grid">
-            {cosmetics.map((c) => {
-              const unlocked = c.cost === 0 || cosmeticUnlocks.has(c.id);
-              const selected = c.id === selectedCosmetic;
-              const affordable = unlocked || pointsBalance >= c.cost;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`rt-cosmetic-swatch rt-focus ${selected ? "rt-cosmetic-selected" : ""} ${
-                    !affordable ? "rt-cosmetic-locked" : ""
-                  }`}
-                  style={{ background: c.bg, color: c.ink }}
-                  onClick={() => onChooseCosmetic(c)}
-                  aria-pressed={selected}
-                >
-                  <span className="rt-cosmetic-name">{c.label}</span>
-                  <span className="rt-cosmetic-cost">
-                    {selected ? "selecionada" : unlocked ? "desbloqueada" : `${c.cost} pts`}
-                  </span>
-                </button>
-              );
-            })}
+        </div>
+        <div className="rt-points-badge">
+          <span className="rt-points-value">{pointsBalance}</span>
+          <span className="rt-points-label">pontos</span>
+        </div>
+      </section>
+
+      <section className="rt-goals-list" aria-label="Metas do seu plano">
+        <h2 className="rt-section-title">Do seu plano de dieta</h2>
+        {hasHealthProfile ? (
+          <>
+            <p className="rt-page-sub rt-plan-note">
+              Calculadas com as suas respostas do questionário e com os seus registros. Se você mudar o perfil ou
+              registrar um novo peso, elas se atualizam.
+            </p>
+            {renderItems(planGoals, true)}
+          </>
+        ) : (
+          <div className="rt-card rt-plan-cta">
+            <p className="rt-card-empty">
+              Responda o questionário da dieta para receber metas feitas para você: água, calorias, refeições,
+              atividade, sono e as suas restrições.
+            </p>
+            <button type="button" className="rt-btn rt-btn-primary rt-btn-small rt-focus" onClick={onOpenDiet}>
+              Responder o questionário
+            </button>
           </div>
-        </section>
-      </div>
+        )}
+      </section>
+
+      <section className="rt-goals-list" aria-label="Lista de metas">
+        <h2 className="rt-section-title">Minhas metas</h2>
+        {otherGoals.length === 0 ? (
+          <p className="rt-card-empty">Nenhuma meta ainda — adicione uma abaixo.</p>
+        ) : (
+          renderItems(otherGoals, false)
+        )}
+
+        <form className="rt-goal-add-form" onSubmit={submitGoal}>
+          <input
+            className="rt-input rt-focus"
+            type="text"
+            value={newGoal}
+            onChange={(e) => setNewGoal(e.target.value)}
+            placeholder="Adicionar uma meta nova"
+            maxLength={200}
+          />
+          <button type="submit" className="rt-btn rt-btn-primary rt-btn-small rt-focus">
+            Adicionar
+          </button>
+        </form>
+      </section>
+
+      <section className="rt-shop" aria-label="Loja de cores">
+        <h2 className="rt-section-title">Cor de fundo do site</h2>
+        <p className="rt-page-sub" style={{ marginBottom: 14 }}>
+          A cor que você escolher vale para o site todo: Painel, Dietas, Notícias e Metas. Branco e preto sempre
+          disponíveis. As outras custam pontos pra desbloquear, e depois de desbloqueada você pode trocar de volta a
+          qualquer hora, de graça.
+        </p>
+        <div className="rt-cosmetics-grid">
+          {cosmetics.map((c) => {
+            const unlocked = c.cost === 0 || cosmeticUnlocks.has(c.id);
+            const selected = c.id === selectedCosmetic;
+            const affordable = unlocked || pointsBalance >= c.cost;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                className={`rt-cosmetic-swatch rt-focus ${selected ? "rt-cosmetic-selected" : ""} ${
+                  !affordable ? "rt-cosmetic-locked" : ""
+                }`}
+                style={{ background: c.bg, color: c.ink }}
+                onClick={() => onChooseCosmetic(c)}
+                aria-pressed={selected}
+              >
+                <span className="rt-cosmetic-name">{c.label}</span>
+                <span className="rt-cosmetic-cost">
+                  {selected ? "selecionada" : unlocked ? "desbloqueada" : `${c.cost} pts`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
-

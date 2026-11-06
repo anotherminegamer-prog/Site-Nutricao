@@ -1,12 +1,6 @@
 import { DIETS, RESTRICTION_ADAPTATIONS, RESTRICTION_LABELS } from "./dietData";
 import { daysAgo } from "./helpers";
 
-/* Motor de recomendação de dietas.
-
-   Tudo aqui é função pura: recebe o perfil de saúde (tabela health_profiles) e
-   os registros (entries) e devolve o que mostrar na tela. As fórmulas são
-   estimativas de população geral (Mifflin-St Jeor etc.) e NÃO substituem a
-   avaliação de um nutricionista ou médico. */
 
 const byRecent = (a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1);
 
@@ -25,7 +19,6 @@ export function classifyBmi(bmi) {
   return "obesidade";
 }
 
-/* ---------- dados registrados pela pessoa ---------- */
 
 export function summarizeEntries(entries) {
   const weights = entries.filter((e) => e.type === "weight").slice().sort(byRecent);
@@ -38,7 +31,6 @@ export function summarizeEntries(entries) {
   const avgSleep = sleep7.length ? sleep7.reduce((s, e) => s + Number(e.value), 0) / sleep7.length : null;
   const exerciseMinutes = exercise7.reduce((s, e) => s + Number(e.value), 0);
 
-  // tendência de peso: últimos 60 dias, do registro mais antigo ao mais novo
   const recentWeights = weights.filter((e) => daysAgo(e.date) <= 60 && daysAgo(e.date) >= 0).slice().reverse();
   let weeklyChange = null;
   if (recentWeights.length >= 2) {
@@ -59,7 +51,6 @@ export function summarizeEntries(entries) {
   };
 }
 
-/* ---------- etapas para chegar à dieta certa ---------- */
 
 export function getReadiness(profile, entries) {
   const s = summarizeEntries(entries);
@@ -103,11 +94,10 @@ export function getReadiness(profile, entries) {
   return { steps, ready, precision, summary: s };
 }
 
-/* ---------- segurança ---------- */
 
 function assessSafety({ age, conditions, goal, bmi }) {
   const notices = [];
-  let allowedIds = null; // null = todas
+  let allowedIds = null;
   let allowNumbers = true;
   let effectiveGoal = goal;
 
@@ -198,13 +188,11 @@ function assessSafety({ age, conditions, goal, bmi }) {
   return { notices, allowedIds, allowNumbers, effectiveGoal };
 }
 
-/* ---------- metas numéricas ---------- */
 
 function computeTargets({ profile, age, weightKg, effectiveGoal, exerciseMinutes }) {
   const sexConstant = profile.sex === "male" ? 5 : profile.sex === "female" ? -161 : -78;
   const bmr = 10 * weightKg + 6.25 * profile.height_cm - 5 * age + sexConstant;
   const lifestyleFactor = { sedentary: 1.2, standing: 1.3, active: 1.4 }[profile.lifestyle] || 1.2;
-  // exercício moderado ~4 METs líquidos, distribuído nos 7 dias da semana
   const exerciseKcalDay = (4 * weightKg * (exerciseMinutes / 60)) / 7;
   const tdee = bmr * lifestyleFactor + exerciseKcalDay;
 
@@ -238,7 +226,6 @@ function computeMacros(diet, kcal, weightKg, effectiveGoal) {
   const f = mid(diet.macros.fat);
   const sum = c + p + f;
 
-  // proteína: o maior entre o % da dieta e um piso por kg (preserva massa magra)
   const floorPerKg = effectiveGoal === "lose" ? 1.2 : effectiveGoal === "gain" ? 1.6 : 0;
   let protG = Math.max((kcal * (p / sum)) / 4, floorPerKg * weightKg);
   protG = Math.min(protG, (kcal * 0.35) / 4);
@@ -258,7 +245,6 @@ function computeMacros(diet, kcal, weightKg, effectiveGoal) {
   };
 }
 
-/* ---------- pontuação das dietas ---------- */
 
 function scoreDiet(diet, ctx) {
   let score = 40;
@@ -291,21 +277,17 @@ function scoreDiet(diet, ctx) {
     }
   });
 
-  // esforço de preparo x tempo disponível
   if (ctx.cooking === "little") score += diet.effort === 3 ? -8 : diet.effort === 1 ? 3 : 0;
   else if (ctx.cooking === "some") score += diet.effort === 3 ? -3 : 0;
 
-  // custo x orçamento
   if (ctx.budget === "low") score += diet.cost === 3 ? -8 : diet.cost === 1 ? 3 : 0;
   else if (ctx.budget === "medium") score += diet.cost === 3 ? -3 : 0;
 
-  // sono curto: estrutura rica em fibra/proteína e com refeições regulares ajuda no apetite
   if (ctx.sleepCount >= 3 && ctx.avgSleep !== null && ctx.avgSleep < 6 && diet.sleepFriendly) {
     score += 5;
     reasons.push("Com pouco sono a fome e a vontade de doces aumentam; fibras, proteína e refeições regulares ajudam a controlar isso");
   }
 
-  // volume de exercício x carboidrato
   if (ctx.exerciseMinutes >= 150) {
     const weight = ctx.exerciseMinutes >= 300 ? 6 : 3;
     score += diet.trainingFit * weight;
@@ -323,7 +305,6 @@ function isEligible(diet, ctx) {
   return !ctx.restrictions.some((r) => diet.compat[r] === "no");
 }
 
-/* ---------- observações a partir dos registros ---------- */
 
 function buildInsights(s, effectiveGoal) {
   const insights = [];
@@ -368,7 +349,6 @@ function buildInsights(s, effectiveGoal) {
   return insights;
 }
 
-/* ---------- função principal ---------- */
 
 export function recommend(profile, entries) {
   const s = summarizeEntries(entries);
@@ -378,7 +358,6 @@ export function recommend(profile, entries) {
   const bmi = weightKg / (heightM * heightM);
 
   const conditions = profile.conditions || [];
-  // se marcou vegano, vegetariano fica implícito
   let restrictions = profile.restrictions || [];
   if (restrictions.includes("vegan")) restrictions = restrictions.filter((r) => r !== "vegetarian");
 
